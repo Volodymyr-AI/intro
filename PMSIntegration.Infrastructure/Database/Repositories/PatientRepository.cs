@@ -38,7 +38,7 @@ public class PatientRepository : IPatientRepository
     {
         var patients = new List<Patient>();
         const string sql = @"
-            SELECT Id, FirstName, LastName, Phone, Email, 
+            SELECT Id, FirstName, LastName, Gender, Phone, Email, 
                    Address, City, State, ZipCode, DateOfBirth,
                    IsSynced, ReportReady
             FROM Patients
@@ -98,11 +98,11 @@ public class PatientRepository : IPatientRepository
     {
         const string sql = @"
             INSERT OR REPLACE INTO Patients(
-                   Id, FirstName, LastName, Phone, Email,
+                   Id, FirstName, LastName, Gender, Phone, Email,
                    Address, City, State, ZipCode, DateOfBirth,
                    IsSynced, ReportReady
             ) VALUES (
-                   @id, @firstName, @lastName, @phone, @email, @address,
+                   @id, @firstName, @lastName, @gender, @phone, @email, @address,
                    @city, @state, @zipCode, @dateOfBirth, @isSynced, @reportReady
                    )";
 
@@ -116,6 +116,7 @@ public class PatientRepository : IPatientRepository
                 command.Parameters.AddWithValue("@id", patient.Id);
                 command.Parameters.AddWithValue("@firstName", patient.FirstName);
                 command.Parameters.AddWithValue("@lastName", patient.LastName);
+                command.Parameters.AddWithValue("@gender", patient.Gender);
                 command.Parameters.AddWithValue("@phone", patient.Phone);
                 command.Parameters.AddWithValue("@email", patient.Email ?? "");
                 command.Parameters.AddWithValue("@address", patient.Address ?? "");
@@ -202,15 +203,16 @@ public class PatientRepository : IPatientRepository
             Id = reader.GetInt32(0),
             FirstName = reader.GetString(1),
             LastName = reader.GetString(2),
-            Phone = reader.GetString(3),
-            Email = reader.IsDBNull(4) ? "" : reader.GetString(4),
-            Address = reader.IsDBNull(5) ? "" : reader.GetString(5),
-            City = reader.IsDBNull(6) ? "" : reader.GetString(6),
-            State = reader.IsDBNull(7) ? "" : reader.GetString(7),
-            ZipCode = reader.IsDBNull(8) ? "" : reader.GetString(8),
-            DateOfBirth = DateTime.Parse(reader.GetString(9)),
-            IsSynced = reader.GetBoolean(10),
-            ReportReady = reader.GetBoolean(11 )
+            Gender = reader.GetString(3),
+            Phone = reader.GetString(4),
+            Email = reader.IsDBNull(4) ? "" : reader.GetString(5),
+            Address = reader.IsDBNull(5) ? "" : reader.GetString(6),
+            City = reader.IsDBNull(6) ? "" : reader.GetString(7),
+            State = reader.IsDBNull(7) ? "" : reader.GetString(8),
+            ZipCode = reader.IsDBNull(8) ? "" : reader.GetString(9),
+            DateOfBirth = DateTime.Parse(reader.GetString(10)),
+            IsSynced = reader.GetBoolean(11),
+            ReportReady = reader.GetBoolean(12)
         };
     }
 }

@@ -11,6 +11,7 @@ public static class OpenDentalMapper
             Id = dto.PatNum,
             FirstName = dto.FName ?? "",
             LastName = dto.LName ?? "",
+            Gender = dto.Gender ?? "",
             Phone = GetBestPhone(dto.HmPhone, dto.WirelessPhone, dto.WkPhone),
             Email = dto.Email ?? "",
             Address = CombineAddress(dto.Address, dto.Address2),

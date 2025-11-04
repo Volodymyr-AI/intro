@@ -1,4 +1,4 @@
-﻿using PMSIntegration.Core.Reports.Enums;
+﻿using PMSIntegration.Core.Enums;
 
 namespace PMSIntegration.Core.Entities;
 
@@ -6,7 +6,6 @@ public class Report
 {
     public int Id { get; private set; }
     public string FileName { get; private set; }
-    public string OriginalPath { get; private set; }
     public string? PatientName { get; private set; }
     public string? DestinationPath { get; private set; }
     public ReportStatus Status { get; private set; }
@@ -23,7 +22,6 @@ public class Report
         return new Report
         {
             FileName = fileName,
-            OriginalPath = originalPath,
             Status = ReportStatus.UPLOADED,
             CreatedAt = DateTime.UtcNow
         };

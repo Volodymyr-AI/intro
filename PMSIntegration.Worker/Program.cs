@@ -56,6 +56,7 @@ namespace PMSIntegration.Worker
                         rollingInterval: RollingInterval.Day,
                         retainedFileCountLimit: 90,
                         outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}{Exception}"))
+                // Fatal logs
                 .WriteTo.Logger(lc => lc
                     .Filter.ByIncludingOnly(e => e.Level >= LogEventLevel.Fatal)
                     .WriteTo.File(

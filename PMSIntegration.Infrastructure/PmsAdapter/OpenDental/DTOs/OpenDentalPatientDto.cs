@@ -12,6 +12,8 @@ public class OpenDentalPatientDto
     
     [JsonPropertyName("LName")]
     public string? LName { get; set; }
+    [JsonPropertyName("Gender")]
+    public string? Gender { get; set; }
     
     [JsonPropertyName("Birthdate")]
     public string? Birthdate { get; set; }

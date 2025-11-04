@@ -1,4 +1,4 @@
-﻿namespace PMSIntegration.Core.Reports.Enums;
+﻿namespace PMSIntegration.Core.Enums;
 
 public enum ReportStatus
 {
@@ -13,7 +13,7 @@ public enum ReportStatus
     PROCESSED,
     
     /// <summary>
-    /// РReport imported successfully into PMS 
+    /// Report imported successfully into PMS 
     /// </summary>
     IMPORTED,
     

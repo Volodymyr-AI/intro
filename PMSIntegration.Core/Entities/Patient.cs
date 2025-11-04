@@ -6,6 +6,8 @@ public class Patient
     public int Id { get; set; }
     public string FirstName { get; set; } = string.Empty;
     public string LastName { get; set; } = string.Empty;
+
+    public string Gender { get; set; } = string.Empty;
     // Contact information
     public string Phone { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
@@ -23,7 +25,7 @@ public class Patient
     public bool IsSynced { get; set; }
 
     public static Patient Create(
-        string firstName, string lastName,
+        string firstName, string lastName, string gender,
         string phone, string email,
         DateTime dateOfBirth)
     {
@@ -31,6 +33,7 @@ public class Patient
         {
             FirstName = firstName,
             LastName = lastName,
+            Gender = gender,
             Phone = phone,
             Email = email,
             DateOfBirth = dateOfBirth,

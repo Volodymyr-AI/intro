@@ -38,6 +38,7 @@ public class DatabaseInitializer
                 Id INTEGER PRIMARY KEY,
                 FirstName TEXT NOT NULL,
                 LastName TEXT NOT NULL,
+                Gender TEXT,
                 Phone TEXT NOT NULL,
                 Email TEXT,
                 Address TEXT,
@@ -80,6 +81,21 @@ public class DatabaseInitializer
                 Key TEXT PRIMARY KEY,
                 Value TEXT NOT NULL,
                 UpdatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )");
+        
+        // Reports table
+        ExecuteNonQuery(connection, @"
+            CREATE TABLE IF NOT EXISTS Reports (
+                Id  INTEGER PRIMARY KEY AUTOINCREMENT,
+                FileName TEXT NOT NULL,
+                PatientName TEXT,
+                DestinationPath TEXT,
+                Status TEXT NOT NULL,
+                ErrorMessage TEXT,
+                CreatedAt TEXT NOT NULL,
+                ProcessedAt TEXT,
+                ImportedAt TEXT,
+                CompletedAt TEXT 
             )");
         
         _logger.LogInformation("Database tables initialized successfully");
