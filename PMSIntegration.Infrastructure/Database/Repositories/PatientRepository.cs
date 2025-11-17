@@ -34,6 +34,93 @@ public class PatientRepository : IPatientRepository
         return ids;
     }
 
+    public async Task<Patient?> GetByIdAsync(int id)
+    {
+        const string sql = @"
+            SELECT Id, FirstName, LastName, Gender, Phone, Email,
+                   Address, City, State, ZipCode, DateOfBirth,
+                   IsSynced, ReportReady
+            FROM Patients
+            WHERE Id = @id";
+
+        using var command = new SQLiteCommand(sql, _context.Connection);
+        command.Parameters.AddWithValue("@id", id);
+        
+        using var reader = await command.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            return MapPatientFromReader((SQLiteDataReader)reader);
+        }
+
+        return null;
+    }
+
+    public async Task<List<Patient>> GetAllAsync()
+    {
+        var patients = new List<Patient>();
+        const string sql = @"
+        SELECT Id, FirstName, LastName, Gender, Phone, Email, 
+               Address, City, State, ZipCode, DateOfBirth,
+               IsSynced, ReportReady
+        FROM Patients
+        ORDER BY LastName, FirstName";
+    
+        using var command = new SQLiteCommand(sql, _context.Connection);
+        using var reader = await command.ExecuteReaderAsync();
+    
+        while (await reader.ReadAsync())
+        {
+            patients.Add(MapPatientFromReader((SQLiteDataReader)reader));
+        }
+    
+        _logger.LogDebug($"Retrieved {patients.Count} patients from database");
+        return patients;
+    }
+    
+    public async Task<bool> UpdateAsync(Patient patient)
+    {
+        const string sql = @"
+        UPDATE Patients SET
+            FirstName = @firstName,
+            LastName = @lastName,
+            Gender = @gender,
+            Phone = @phone,
+            Email = @email,
+            Address = @address,
+            City = @city,
+            State = @state,
+            ZipCode = @zipCode,
+            DateOfBirth = @dateOfBirth,
+            IsSynced = @isSynced,
+            ReportReady = @reportReady
+        WHERE Id = @id";
+    
+        using var command = new SQLiteCommand(sql, _context.Connection);
+    
+        command.Parameters.AddWithValue("@id", patient.Id);
+        command.Parameters.AddWithValue("@firstName", patient.FirstName);
+        command.Parameters.AddWithValue("@lastName", patient.LastName);
+        command.Parameters.AddWithValue("@gender", patient.Gender);
+        command.Parameters.AddWithValue("@phone", patient.Phone);
+        command.Parameters.AddWithValue("@email", patient.Email ?? "");
+        command.Parameters.AddWithValue("@address", patient.Address ?? "");
+        command.Parameters.AddWithValue("@city", patient.City ?? "");
+        command.Parameters.AddWithValue("@state", patient.State ?? "");
+        command.Parameters.AddWithValue("@zipCode", patient.ZipCode ?? "");
+        command.Parameters.AddWithValue("@dateOfBirth", patient.DateOfBirth.ToString("yyyy-MM-dd"));
+        command.Parameters.AddWithValue("@isSynced", patient.IsSynced);
+        command.Parameters.AddWithValue("@reportReady", patient.ReportReady);
+    
+        var affected = await command.ExecuteNonQueryAsync();
+    
+        if (affected > 0)
+        {
+            _logger.LogDebug($"Updated patient: {patient.FirstName} {patient.LastName} (ID: {patient.Id})");
+        }
+    
+        return affected > 0;
+    }
+
     public async Task<List<Patient>> GetUnsyncedAsync(int limit = 100)
     {
         var patients = new List<Patient>();

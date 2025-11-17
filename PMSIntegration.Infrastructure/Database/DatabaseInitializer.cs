@@ -88,7 +88,9 @@ public class DatabaseInitializer
             CREATE TABLE IF NOT EXISTS Reports (
                 Id  INTEGER PRIMARY KEY AUTOINCREMENT,
                 FileName TEXT NOT NULL,
+                PatientId  INTEGER,
                 PatientName TEXT,
+                SourcePath TEXT NOT NULL,
                 DestinationPath TEXT,
                 Status TEXT NOT NULL,
                 ErrorMessage TEXT,
@@ -99,6 +101,15 @@ public class DatabaseInitializer
             )");
         
         _logger.LogInformation("Database tables initialized successfully");
+    }
+
+    private void SeedConfiguration(SQLiteConnection connection)
+    {
+        ExecuteNonQuery(connection, @"
+            INSERT OR IGNORE INTO Configuration (Key, Value)
+            VALUES ('SyncApiBaseUrl', 'https://sync-api.getdentalray.com')");
+        
+        _logger.LogInformation("Configured with seeded data");
     }
 
     private void ExecuteNonQuery(SQLiteConnection connection, string sql)

@@ -4,57 +4,33 @@ namespace PMSIntegration.Core.Entities;
 
 public class Report
 {
-    public int Id { get; private set; }
-    public string FileName { get; private set; }
-    public string? PatientName { get; private set; }
-    public string? DestinationPath { get; private set; }
-    public ReportStatus Status { get; private set; }
-    public string? ErrorMessage { get; private set; }
-    public DateTime CreatedAt { get; private set; }
-    public DateTime? ProcessedAt { get; private set; }
-    public DateTime? ImportedAt { get; private set; }
-    public DateTime? CompletedAt { get; private set; }
-    
-    private Report(){}
+    public int Id { get; set; }
+    public string FileName { get; set; } = string.Empty;
+    public int? PatientId { get; set; }
+    public string? PatientName { get;  set; }
+    public string SourcePath { get; set; } = string.Empty;
+    public string? DestinationPath { get; set; }
+    public ReportStatus Status { get; set; }
+    public string? ErrorMessage { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? ProcessedAt { get; set; }
+    public DateTime? ImportedAt { get; set; }
+    public DateTime? CompletedAt { get; set; }
 
-    public static Report CreateUploaded(string fileName, string originalPath)
+    public static Report CreateUploaded(string fileName, string sourcePath)
     {
         return new Report
         {
             FileName = fileName,
+            SourcePath = sourcePath,
             Status = ReportStatus.UPLOADED,
             CreatedAt = DateTime.UtcNow
         };
     }
 
-    public void SetId(int id)
+    public bool HasValue<T, TValue>(T obj, Func<T, TValue> selector)
     {
-        Id = id;
-    }
-
-    public void MarkAsProcessed(string patientName)
-    {
-        PatientName = patientName;
-        Status = ReportStatus.PROCESSED;
-        ProcessedAt = DateTime.UtcNow;
-    }
-
-    public void MarkAsImported(string destinationPath)
-    {
-        DestinationPath = destinationPath;
-        Status = ReportStatus.IMPORTED;
-        ImportedAt = DateTime.UtcNow;
-    }
-
-    public void MarkAsSuccess()
-    {
-        Status = ReportStatus.SUCCESS;
-        CompletedAt = DateTime.UtcNow;
-    }
-
-    public void MarkAsFailed(string errorMessage)
-    {
-        ErrorMessage = errorMessage;
-        Status = ReportStatus.FAILED;
+        var value = selector(obj);
+        return value != null && !Equals(value, default(TValue));
     }
 }

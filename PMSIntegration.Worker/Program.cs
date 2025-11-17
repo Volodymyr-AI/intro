@@ -3,6 +3,7 @@ using PMSIntegration.Core.Interfaces;
 using PMSIntegration.Infrastructure.Configuration;
 using PMSIntegration.Infrastructure.Database;
 using PMSIntegration.Infrastructure.Database.Repositories;
+using PMSIntegration.Infrastructure.FileSystem;
 using PMSIntegration.Infrastructure.PmsAdapter.OpenDental;
 using PMSIntegration.Infrastructure.Resilience;
 using PMSIntegration.Worker.Workers;
@@ -146,9 +147,16 @@ namespace PMSIntegration.Worker
             services.AddSingleton<ISyncConfiguration>(provider => 
                provider.GetRequiredService<OpenDentalConfiguration>());
             
+            // File System Services
+            services.AddScoped<LocalFileSystemService>();
+            services.AddScoped<OpenDentalFileSystemService>();
+            services.AddScoped<IPmsFileSystemService>(provider => 
+                provider.GetRequiredService<OpenDentalFileSystemService>());
+            
             // Register Repositories
             services.AddScoped<IPatientRepository, PatientRepository>();
             services.AddScoped<IInsuranceRepository, InsuranceRepository>();
+            services.AddScoped<IReportRepository, ReportRepository>();
             
             // Register PMS API Service
             services.AddScoped<IPmsApiService, OpenDentalApiService>(provider =>
@@ -165,9 +173,11 @@ namespace PMSIntegration.Worker
             
             //Register Application Services
             services.AddScoped<ResilientPatientSyncService>();
+            services.AddScoped<ResilientReportProcessingService>();
             
             // Register Background Workers
             services.AddHostedService<PatientWorker>();
+            services.AddHostedService<ReportWorker>();
             
             // Configure Host Options
             services.Configure<HostOptions>(options =>
