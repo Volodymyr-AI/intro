@@ -6,7 +6,6 @@ public class Report
 {
     public int Id { get; set; }
     public string FileName { get; set; } = string.Empty;
-    public int? PatientId { get; set; }
     public string? PatientName { get;  set; }
     public string SourcePath { get; set; } = string.Empty;
     public string? DestinationPath { get; set; }

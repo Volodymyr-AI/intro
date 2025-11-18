@@ -19,8 +19,7 @@ public static class OpenDentalMapper
             State = dto.State ?? "",
             ZipCode = dto.Zip ?? "",
             DateOfBirth = ParseDate(dto.Birthdate),
-            IsSynced = false,
-            ReportReady = false
+            IsSynced = false
         };
     }
 

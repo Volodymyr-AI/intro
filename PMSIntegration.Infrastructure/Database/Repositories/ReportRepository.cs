@@ -21,11 +21,11 @@ public class ReportRepository : IReportRepository
     {
         const string sql = @"
             INSERT INTO Reports(
-                FileName, PatientId, PatientName, SourcePath,
+                FileName, PatientName, SourcePath,
                 DestinationPath, Status, ErrorMessage,
                 CreatedAt, ProcessedAt, ImportedAt, CompletedAt
             ) VALUES (
-                @fileName, @patientId, @patientName, @sourcePath,
+                @fileName, @patientName, @sourcePath,
                 @destinationPath, @status, @errorMessage,
                 @createdAt, @processedAt, @importedAt, @completedAt
             );";
@@ -33,7 +33,6 @@ public class ReportRepository : IReportRepository
         using var command = new SQLiteCommand(sql, _context.Connection);
         
         command.Parameters.AddWithValue("@fileName", report.FileName);
-        command.Parameters.AddWithValue("@patientId", (object?)report.PatientId ?? DBNull.Value);
         command.Parameters.AddWithValue("@patientName", (object?)report.PatientName ?? DBNull.Value);
         command.Parameters.AddWithValue("@sourcePath", report.SourcePath);
         command.Parameters.AddWithValue("@destinationPath", (object?)report.DestinationPath ?? DBNull.Value);
@@ -57,7 +56,7 @@ public class ReportRepository : IReportRepository
     public async Task<Report?> GetByIdAsync(int id)
     {
         const string sql = @"
-            SELECT Id, FileName, PatientId, PatientName, SourcePath,
+            SELECT Id, FileName, PatientName, SourcePath,
                    DestinationPath, Status, ErrorMessage,
                    CreatedAt, ProcessedAt, ImportedAt, CompletedAt
             FROM Reports WHERE Id = @id";
@@ -77,7 +76,7 @@ public class ReportRepository : IReportRepository
     {
         var reports = new List<Report>();
         const string sql = @"
-            SELECT Id, FileName, PatientId, PatientName, SourcePath,
+            SELECT Id, FileName, PatientName, SourcePath,
                    DestinationPath, Status, ErrorMessage,
                    CreatedAt, ProcessedAt, ImportedAt, CompletedAt
             FROM Reports 
@@ -101,7 +100,6 @@ public class ReportRepository : IReportRepository
         const string sql = @"
             UPDATE Reports SET
                 FileName = @fileName,
-                PatientId = @patientId,
                 PatientName = @patientName,
                 SourcePath = @sourcePath,
                 DestinationPath = @destinationPath,
@@ -116,7 +114,6 @@ public class ReportRepository : IReportRepository
         
         command.Parameters.AddWithValue("@id", report.Id);
         command.Parameters.AddWithValue("@fileName", report.FileName);
-        command.Parameters.AddWithValue("@patientId", (object?)report.PatientId ?? DBNull.Value);
         command.Parameters.AddWithValue("@patientName", (object?)report.PatientName ?? DBNull.Value);
         command.Parameters.AddWithValue("@sourcePath", report.SourcePath);
         command.Parameters.AddWithValue("@destinationPath", (object?)report.DestinationPath ?? DBNull.Value);
@@ -139,16 +136,15 @@ public class ReportRepository : IReportRepository
         {
             Id = reader.GetInt32(0),
             FileName = reader.GetString(1),
-            PatientId = reader.IsDBNull(2) ? 0 : reader.GetInt32(2),
-            PatientName = reader.IsDBNull(3) ? null : reader.GetString(3),
-            SourcePath = reader.GetString(4),
-            DestinationPath = reader.IsDBNull(5) ? null : reader.GetString(5),
-            Status = Enum.Parse<ReportStatus>(reader.GetString(6)),
-            ErrorMessage = reader.IsDBNull(7) ? null : reader.GetString(7),
-            CreatedAt = DateTime.Parse(reader.GetString(8)),
-            ProcessedAt = reader.IsDBNull(9) ? null : DateTime.Parse(reader.GetString(9)),
-            ImportedAt = reader.IsDBNull(10) ? null : DateTime.Parse(reader.GetString(10)),
-            CompletedAt = reader.IsDBNull(11) ? null : DateTime.Parse(reader.GetString(11))
+            PatientName = reader.IsDBNull(2) ? null : reader.GetString(2),
+            SourcePath = reader.GetString(3),
+            DestinationPath = reader.IsDBNull(4) ? null : reader.GetString(4),
+            Status = Enum.Parse<ReportStatus>(reader.GetString(5)),
+            ErrorMessage = reader.IsDBNull(6) ? null : reader.GetString(6),
+            CreatedAt = DateTime.Parse(reader.GetString(7)),
+            ProcessedAt = reader.IsDBNull(8) ? null : DateTime.Parse(reader.GetString(8)),
+            ImportedAt = reader.IsDBNull(9) ? null : DateTime.Parse(reader.GetString(9)),
+            CompletedAt = reader.IsDBNull(10) ? null : DateTime.Parse(reader.GetString(10))
         };
     }
 }

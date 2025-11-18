@@ -55,7 +55,7 @@ public class OpenDentalApiService : IPmsApiService, IDisposable
             
             if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
             {
-                _logger.LogError("OpenDental API authentication failed. Check AuthToken in інтсConfiguration.");
+                _logger.LogError("OpenDental API authentication failed. Check AuthToken in Configuration.");
             }
             
             return false;

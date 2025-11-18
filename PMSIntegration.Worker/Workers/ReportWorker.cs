@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Threading.Channels;
 using PMSIntegration.Application.Services;
 using PMSIntegration.Core.Interfaces;
 
@@ -7,6 +9,7 @@ public class ReportWorker : BackgroundService
 {
     private const int MAX_CONSECUTIVE_FAILURES = 10;
     private const int PROCESSING_INTERVAL_MINUTES = 5;
+    private const int QUEUE_CAPACITY = 100; // Maximum queue size of processed studies
     
     private readonly ILogger<ReportWorker> _logger;
     private readonly IServiceScopeFactory _scopeFactory;
@@ -15,8 +18,11 @@ public class ReportWorker : BackgroundService
     
     private FileSystemWatcher? _fileWatcher;
     private int _consecutiveFailures = 0;
-    private readonly object _lockObject = new object();
-    private readonly HashSet<string> _processingFiles = new HashSet<string>();
+    
+    // Channel-based queue for controlled processing
+    private readonly Channel<string> _reportQueue;
+    private int _queuedCount = 0;
+    private int _processedCount = 0;
 
     public ReportWorker(
         ILogger<ReportWorker> logger, 
@@ -28,6 +34,12 @@ public class ReportWorker : BackgroundService
         _scopeFactory = scopeFactory;
         _lifetime = lifetime;
         _reportsDirectory = configuration["ReportsDirectory"] ?? "reports";
+        
+        _reportQueue = Channel.CreateBounded<string>(
+            new BoundedChannelOptions(QUEUE_CAPACITY)
+            {
+                FullMode = BoundedChannelFullMode.Wait // Block if queue is full
+            });
     }
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -46,51 +58,157 @@ public class ReportWorker : BackgroundService
         // Initial delay to let the application fully start
         await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
         
-        // Process any existing files first
-        await ProcessExistingFilesAsync(stoppingToken);
+        // Queue existing files
+        await QueueExistingFilesAsync();
         
         // Start file system watcher
         StartFileSystemWatcher();
         
-        // Periodic processing loop for pending reports and retry logic
+        // Start background task for periodic pending reports check
+        _ = Task.Run(() => ProcessPendingReportsLoop(stoppingToken), stoppingToken);
+        
+        // Main queue processing loop
+        await ProcessQueueLoop(stoppingToken);
+        
+        _logger.LogInformation("ReportWorker stopped");
+    }
+    
+    /// <summary>
+    /// Main queue processing loop - processes reports one by one
+    /// </summary>
+    private async Task ProcessQueueLoop(CancellationToken stoppingToken)
+    {
+        _logger.LogInformation("Starting queue processing loop");
+        
+        try
+        {
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                // Wait for next report in queue
+                if (await _reportQueue.Reader.WaitToReadAsync(stoppingToken))
+                {
+                    if (_reportQueue.Reader.TryRead(out var filePath))
+                    {
+                        var queueSize = _queuedCount - _processedCount;
+                        _logger.LogDebug($"Processing report from queue ({queueSize} remaining): {Path.GetFileName(filePath)}");
+                        
+                        try
+                        {
+                            await ProcessReportFileAsync(filePath);
+                            _processedCount++;
+                            _consecutiveFailures = 0;
+                        }
+                        catch (Exception ex)
+                        {
+                            _consecutiveFailures++;
+                            _logger.LogError(ex, $"Error processing report: {filePath}");
+                            
+                            if (_consecutiveFailures >= MAX_CONSECUTIVE_FAILURES)
+                            {
+                                _logger.LogCritical($"Reached max consecutive failures ({MAX_CONSECUTIVE_FAILURES}). Stopping service.");
+                                _lifetime.StopApplication();
+                                return;
+                            }
+                            
+                            // Small delay before processing next file after error
+                            await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+                        }
+                    }
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Queue processing cancelled due to shutdown");
+        }
+    }
+
+    /// <summary>
+    /// Periodic loop for processing pending reports (retry logic)
+    /// </summary>
+    private async Task ProcessPendingReportsLoop(CancellationToken stoppingToken)
+    {
+        // Wait for initial startup
+        await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
+        
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
                 await ProcessPendingReportsAsync(stoppingToken);
-
-                _consecutiveFailures = 0;
-
-                // Wait before next cycle
-                _logger.LogDebug($"Next pending reports check in {PROCESSING_INTERVAL_MINUTES} minutes");
                 await Task.Delay(TimeSpan.FromMinutes(PROCESSING_INTERVAL_MINUTES), stoppingToken);
             }
             catch (OperationCanceledException)
             {
-                _logger.LogInformation("Report processing cancelled due to shutdown");
+                _logger.LogInformation("Pending reports processing cancelled");
                 break;
             }
             catch (Exception ex)
             {
-                _consecutiveFailures++;
-                _logger.LogError(ex, $"Error in report processing cycle (failures: {_consecutiveFailures}/{MAX_CONSECUTIVE_FAILURES})");
-
-                if (_consecutiveFailures >= MAX_CONSECUTIVE_FAILURES)
-                {
-                    _logger.LogCritical($"Service reached max failures ({MAX_CONSECUTIVE_FAILURES}). Stopping.");
-                    _lifetime.StopApplication();
-                    return;
-                }
-
-                var delay = TimeSpan.FromMinutes(Math.Min(5 * _consecutiveFailures, 30));
-                _logger.LogWarning($"Waiting {delay.TotalMinutes} minutes before retry");
-                await Task.Delay(delay, stoppingToken);
+                _logger.LogError(ex, "Error in pending reports loop");
+                await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
             }
         }
-        
-        _logger.LogInformation("ReportWorker stopped");
     }
-    
+
+    /// <summary>
+    /// Queue existing files on startup
+    /// </summary>
+    private async Task QueueExistingFilesAsync()
+    {
+        try
+        {
+            var files = Directory.GetFiles(_reportsDirectory, "*.pdf");
+            
+            if (files.Length == 0)
+            {
+                _logger.LogInformation("No existing report files found");
+                return;
+            }
+
+            _logger.LogInformation($"Queueing {files.Length} existing report files");
+
+            foreach (var file in files)
+            {
+                await EnqueueReportAsync(file);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error queueing existing files");
+        }
+    }
+
+    /// <summary>
+    /// Enqueue a report file for processing
+    /// </summary>
+    private async Task EnqueueReportAsync(string filePath)
+    {
+        try
+        {
+            // Wait for file to be fully written
+            if (!await WaitForFileAccessAsync(filePath))
+            {
+                _logger.LogWarning($"Could not access file, skipping: {filePath}");
+                return;
+            }
+            
+            await _reportQueue.Writer.WriteAsync(filePath);
+            _queuedCount++;
+            
+            var queueSize = _queuedCount - _processedCount;
+            _logger.LogDebug($"Queued report: {Path.GetFileName(filePath)} (queue size: {queueSize})");
+        }
+        catch (ChannelClosedException)
+        {
+            _logger.LogWarning("Queue is closed, cannot enqueue report");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"Error enqueueing report: {filePath}");
+        }
+    }
+
     /// <summary>
     /// Validate PMS file system is accessible
     /// </summary>
@@ -115,40 +233,6 @@ public class ReportWorker : BackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error validating PMS file system");
-        }
-    }
-
-    /// <summary>
-    /// Process any existing files in reports directory on startup
-    /// </summary>
-    private async Task ProcessExistingFilesAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            var files = Directory.GetFiles(_reportsDirectory, "*.pdf");
-            
-            if (files.Length == 0)
-            {
-                _logger.LogInformation("No existing report files found");
-                return;
-            }
-
-            _logger.LogInformation($"Found {files.Length} existing report files to process");
-
-            foreach (var file in files)
-            {
-                if (cancellationToken.IsCancellationRequested)
-                    break;
-
-                await ProcessNewFileAsync(file);
-                
-                // Small delay between files
-                await Task.Delay(500, cancellationToken);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error processing existing files");
         }
     }
 
@@ -178,18 +262,18 @@ public class ReportWorker : BackgroundService
     }
 
     /// <summary>
-    /// Handle new file created event
+    /// Handle new file created event - just enqueue it
     /// </summary>
     private void OnFileCreated(object sender, FileSystemEventArgs e)
     {
         _logger.LogInformation($"New report file detected: {e.Name}");
 
-        // Run processing in background task to avoid blocking file watcher
+        // Enqueue in background to avoid blocking file watcher
         _ = Task.Run(async () =>
         {
-            // Wait a bit to ensure file is fully written
+            // Small delay to ensure file is fully written
             await Task.Delay(1000);
-            await ProcessNewFileAsync(e.FullPath);
+            await EnqueueReportAsync(e.FullPath);
         });
     }
 
@@ -218,56 +302,24 @@ public class ReportWorker : BackgroundService
     }
 
     /// <summary>
-    /// Process a new report file
+    /// Process a single report file
     /// </summary>
-    private async Task ProcessNewFileAsync(string filePath)
+    private async Task ProcessReportFileAsync(string filePath)
     {
-        // Prevent duplicate processing
-        lock (_lockObject)
+        using var scope = _scopeFactory.CreateScope();
+        var processingService = scope.ServiceProvider.GetRequiredService<ResilientReportProcessingService>();
+
+        _logger.LogInformation($"Processing report: {Path.GetFileName(filePath)}");
+        
+        var result = await processingService.ProcessNewReportAsync(filePath);
+
+        if (result.Success)
         {
-            if (_processingFiles.Contains(filePath))
-            {
-                _logger.LogDebug($"File already being processed: {filePath}");
-                return;
-            }
-            _processingFiles.Add(filePath);
+            _logger.LogInformation($"Successfully processed report: {result.Message}");
         }
-
-        try
+        else
         {
-            // Wait for file to be fully written and not locked
-            if (!await WaitForFileAccessAsync(filePath))
-            {
-                _logger.LogWarning($"Could not access file after waiting: {filePath}");
-                return;
-            }
-
-            using var scope = _scopeFactory.CreateScope();
-            var processingService = scope.ServiceProvider.GetRequiredService<ResilientReportProcessingService>();
-
-            _logger.LogInformation($"Processing new report: {Path.GetFileName(filePath)}");
-            
-            var result = await processingService.ProcessNewReportAsync(filePath);
-
-            if (result.Success)
-            {
-                _logger.LogInformation($"Successfully processed report: {result.Message}");
-            }
-            else
-            {
-                _logger.LogWarning($"Failed to process report: {result.Message}");
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, $"Error processing file: {filePath}");
-        }
-        finally
-        {
-            lock (_lockObject)
-            {
-                _processingFiles.Remove(filePath);
-            }
+            _logger.LogWarning($"Failed to process report: {result.Message}");
         }
     }
 
@@ -280,6 +332,12 @@ public class ReportWorker : BackgroundService
         {
             try
             {
+                if (!File.Exists(filePath))
+                {
+                    _logger.LogWarning($"File disappeared: {filePath}");
+                    return false;
+                }
+                
                 // Try to open file exclusively
                 using var stream = File.Open(filePath, FileMode.Open, FileAccess.Read, FileShare.None);
                 return true;
@@ -309,6 +367,8 @@ public class ReportWorker : BackgroundService
             using var scope = _scopeFactory.CreateScope();
             var processingService = scope.ServiceProvider.GetRequiredService<ResilientReportProcessingService>();
 
+            _logger.LogDebug("Checking for pending reports...");
+            
             var processedCount = await processingService.ProcessPendingReportsAsync(cancellationToken);
 
             if (processedCount > 0)
@@ -338,6 +398,13 @@ public class ReportWorker : BackgroundService
             _fileWatcher.Dispose();
             _logger.LogInformation("FileSystemWatcher stopped");
         }
+        
+        // Close queue writer to signal completion
+        _reportQueue.Writer.Complete();
+        
+        // Log queue statistics
+        var remaining = _queuedCount - _processedCount;
+        _logger.LogInformation($"Queue statistics - Queued: {_queuedCount}, Processed: {_processedCount}, Remaining: {remaining}");
 
         await base.StopAsync(cancellationToken);
     }

@@ -149,6 +149,8 @@ namespace PMSIntegration.Worker
             
             // File System Services
             services.AddScoped<LocalFileSystemService>();
+            services.AddScoped<ILocalFileSystemService>(provider => 
+                provider.GetRequiredService<LocalFileSystemService>());
             services.AddScoped<OpenDentalFileSystemService>();
             services.AddScoped<IPmsFileSystemService>(provider => 
                 provider.GetRequiredService<OpenDentalFileSystemService>());

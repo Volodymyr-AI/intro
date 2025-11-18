@@ -14,21 +14,21 @@ public class ResilientReportProcessingService
     private const int MAX_RETRY_ATTEMPTS = 3;
     
     private readonly IReportRepository _reportRepository;
-    private readonly IPatientRepository _patientRepository;
     private readonly IPmsFileSystemService _pmsFileSystem;
+    private readonly ILocalFileSystemService _localFileSystem;
     private readonly IResiliencePolicy _resiliencePolicy;
     private readonly ILogger<ResilientReportProcessingService> _logger;
     
     public ResilientReportProcessingService(
         IReportRepository reportRepository,
-        IPatientRepository patientRepository,
         IPmsFileSystemService pmsFileSystem,
+        ILocalFileSystemService localFileSystem,
         IResiliencePolicy resiliencePolicy,
         ILogger<ResilientReportProcessingService> logger)
     {
         _reportRepository = reportRepository;
-        _patientRepository = patientRepository;
         _pmsFileSystem = pmsFileSystem;
+        _localFileSystem = localFileSystem;
         _resiliencePolicy = resiliencePolicy;
         _logger = logger;
     }
@@ -49,6 +49,7 @@ public class ResilientReportProcessingService
             var absolutePath = Path.IsPathRooted(filePath) 
                 ? filePath 
                 : Path.GetFullPath(filePath);
+            
             // Step1: create report record in db
             var report = Report.CreateUploaded(fileName, absolutePath);
             report.Id = await _reportRepository.InsertAsync(report);
@@ -173,6 +174,7 @@ public class ResilientReportProcessingService
         _logger.LogInformation($"Processing report {report.Id}: Identifying patient");
         
         // Extract patient name from filename
+        // "Allowed Sara.pdf" -> "Allowed Sara"
         var patientName = ExtractPatientNameFromFileName(report.FileName);
 
         if (string.IsNullOrWhiteSpace(patientName))
@@ -180,22 +182,14 @@ public class ResilientReportProcessingService
             _logger.LogError($"Could not extract patient name from filename: {report.FileName}");
         }
         
-        var patient = await FindPatientByName(patientName);
-
-        if (patient == null)
-        {
-            _logger.LogWarning($"Patient not found: {patientName}");
-        }
-        
         // Update report status
         report.Status = ReportStatus.PROCESSED;
-        report.PatientId = patient.Id;
-        report.PatientName = $"{patient.FirstName} {patient.LastName}";
+        report.PatientName = patientName;
         report.ProcessedAt = DateTime.UtcNow;
         
         await _reportRepository.UpdateAsync(report);
         
-        _logger.LogInformation($"Report {report.Id} processed: Patient {report.PatientName} (ID: {report.PatientId})");
+        _logger.LogInformation($"Report {report.Id} processed: Patient {report.PatientName})");
         
         // Continue to next step
         await TransitionToImported(report);
@@ -207,33 +201,52 @@ public class ResilientReportProcessingService
     /// <param name="report"></param>
     private async Task TransitionToImported(Report report)
     {
-        if (report.PatientId == null || string.IsNullOrWhiteSpace(report.PatientName))
+        if (string.IsNullOrWhiteSpace(report.PatientName))
         {
-            _logger.LogError($"Report {report.Id} missing patient information");
+            _logger.LogError($"Report {report.Id} missing patient name");
         }
-
+        
         _logger.LogInformation($"Importing report {report.Id}: Moving file to patient folder");
+
+        // Check if source file still exists
+        if (!await _localFileSystem.FileExistsAsync(report.SourcePath))
+        {
+            _logger.LogWarning($"Source file already moved or deleted: {report.SourcePath}");
+            
+            // If file doesn't exist but we have destination path, it's already moved
+            if (!string.IsNullOrWhiteSpace(report.DestinationPath))
+            {
+                report.Status = ReportStatus.IMPORTED;
+                report.ImportedAt = DateTime.UtcNow;
+                await _reportRepository.UpdateAsync(report);
+                
+                _logger.LogInformation($"Report {report.Id} already imported to: {report.DestinationPath}");
+                await TransitionToSuccess(report);
+                return;
+            }
+            
+            throw new InvalidOperationException($"Source file not found and no destination path recorded");
+        }
 
         // Use resilience policy for file operations
         var destinationPath = await _resiliencePolicy.ExecuteAsync(async () =>
         {
-            // Try to find patient folder
-            var patientFolder = await _pmsFileSystem.FindPatientFolderAsync(
-                report.PatientName,
-                report.PatientId.Value);
+            // Try to find patient folder by name pattern
+            // "Allowed Sara" -> try to find folder matching this pattern
+            var patientFolder = await TryFindPatientFolderAsync(report.PatientName);
 
             string targetFolder;
 
             if (patientFolder != null)
             {
                 targetFolder = patientFolder;
-                _logger.LogInformation($"Using patient folder: {targetFolder}");
+                _logger.LogInformation($"Found patient folder: {targetFolder}");
             }
             else
             {
-                // Fallback to Reports folder
+                // Fallback to Reports folder - ALWAYS works
                 targetFolder = _pmsFileSystem.GetReportsFallbackPath();
-                _logger.LogWarning($"Patient folder not found, using fallback: {targetFolder}");
+                _logger.LogInformation($"Patient folder not found, using Reports fallback: {targetFolder}");
             }
 
             // Move file
@@ -252,14 +265,6 @@ public class ResilientReportProcessingService
         
         _logger.LogInformation($"Report {report.Id} imported to: {destinationPath}");
 
-        // Mark patient as having report ready
-        var patient = await _patientRepository.GetByIdAsync(report.PatientId.Value);
-        if (patient != null)
-        {
-            patient.ReportReady = true;
-            await _patientRepository.UpdateAsync(patient);
-        }
-
         // Continue to next step
         await TransitionToSuccess(report);
     }
@@ -274,9 +279,9 @@ public class ResilientReportProcessingService
         // Delete source file with resilience
         await _resiliencePolicy.ExecuteAsync(async () =>
         {
-            if (File.Exists(report.SourcePath))
+            if (await _localFileSystem.FileExistsAsync(report.SourcePath))
             {
-                await Task.Run(() => File.Delete(report.SourcePath));
+                await _localFileSystem.DeleteFileAsync(report.SourcePath);
                 _logger.LogInformation($"Deleted source file: {report.SourcePath}");
             }
             else
@@ -323,27 +328,55 @@ public class ResilientReportProcessingService
         
         return nameWithoutExt.Trim();
     }
-
+    
     /// <summary>
-    /// Find patient by name (fuzzy match)
-    /// Expected input: "Sutherlun Jonah" (LastName FirstName)
+    /// Try to find patient folder by name pattern
+    /// This is best-effort - if not found, fallback to Reports folder
     /// </summary>
-    private async Task<Patient?> FindPatientByName(string patientName)
+    private async Task<string?> TryFindPatientFolderAsync(string patientName)
     {
-        var allPatients = await _patientRepository.GetAllAsync();
-        
-        // Normalize search string
-        var normalizedSearch = patientName.Replace(" ", "").ToLower();
-        
-        return allPatients.FirstOrDefault(p => 
+        try
         {
-            // Try matching: LastName + FirstName
-            var lastFirst = $"{p.LastName}{p.FirstName}".ToLower();
+            // Parse name: "Allowed Sara" -> try both combinations
+            var nameParts = patientName.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
             
-            // Try matching: FirstName + LastName
-            var firstLast = $"{p.FirstName}{p.LastName}".ToLower();
+            if (nameParts.Length < 2)
+            {
+                _logger.LogDebug($"Invalid patient name format for folder search: {patientName}");
+                return null;
+            }
+
+            // Try to find folder with any patient ID
+            // We don't know the ID, so we just try to match by name pattern
+            // This will search all folders starting with first letter
+            var imageFolderPath = _pmsFileSystem.GetReportsFallbackPath();
+            var baseFolder = Directory.GetParent(imageFolderPath)?.FullName;
             
-            return lastFirst == normalizedSearch || firstLast == normalizedSearch;
-        });
+            if (string.IsNullOrEmpty(baseFolder))
+                return null;
+
+            // Try first letter folders
+            var firstLetter = nameParts[0][0].ToString().ToUpper();
+            var letterFolder = Path.Combine(baseFolder, firstLetter);
+
+            if (!Directory.Exists(letterFolder))
+                return null;
+
+            // Search for folders matching name pattern
+            // "Allowed Sara" -> look for folders starting with "AllowedSara" or "SaraAllowed"
+            var pattern1 = $"{nameParts[0]}{nameParts[1]}*";
+            var pattern2 = $"{nameParts[1]}{nameParts[0]}*";
+
+            var matchingFolders = Directory.GetDirectories(letterFolder, pattern1)
+                .Concat(Directory.GetDirectories(letterFolder, pattern2))
+                .FirstOrDefault();
+
+            return matchingFolders;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, $"Error searching for patient folder: {patientName}");
+            return null;
+        }
     }
 }

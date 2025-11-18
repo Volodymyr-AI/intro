@@ -91,8 +91,7 @@ public class PatientRepository : IPatientRepository
             State = @state,
             ZipCode = @zipCode,
             DateOfBirth = @dateOfBirth,
-            IsSynced = @isSynced,
-            ReportReady = @reportReady
+            IsSynced = @isSynced
         WHERE Id = @id";
     
         using var command = new SQLiteCommand(sql, _context.Connection);
@@ -109,7 +108,6 @@ public class PatientRepository : IPatientRepository
         command.Parameters.AddWithValue("@zipCode", patient.ZipCode ?? "");
         command.Parameters.AddWithValue("@dateOfBirth", patient.DateOfBirth.ToString("yyyy-MM-dd"));
         command.Parameters.AddWithValue("@isSynced", patient.IsSynced);
-        command.Parameters.AddWithValue("@reportReady", patient.ReportReady);
     
         var affected = await command.ExecuteNonQueryAsync();
     
@@ -187,10 +185,10 @@ public class PatientRepository : IPatientRepository
             INSERT OR REPLACE INTO Patients(
                    Id, FirstName, LastName, Gender, Phone, Email,
                    Address, City, State, ZipCode, DateOfBirth,
-                   IsSynced, ReportReady
+                   IsSynced
             ) VALUES (
                    @id, @firstName, @lastName, @gender, @phone, @email, @address,
-                   @city, @state, @zipCode, @dateOfBirth, @isSynced, @reportReady
+                   @city, @state, @zipCode, @dateOfBirth, @isSynced
                    )";
 
         return await _context.ExecuteInTransactionAsync(async (transaction) =>
@@ -212,7 +210,6 @@ public class PatientRepository : IPatientRepository
                 command.Parameters.AddWithValue("@zipCode", patient.ZipCode ?? "");
                 command.Parameters.AddWithValue("@dateOfBirth", patient.DateOfBirth.ToString("yyyy-MM-dd"));
                 command.Parameters.AddWithValue("@isSynced", true);
-                command.Parameters.AddWithValue("@reportReady", patient.ReportReady);
 
                 await command.ExecuteNonQueryAsync();
                 count++;
@@ -298,8 +295,7 @@ public class PatientRepository : IPatientRepository
             State = reader.IsDBNull(7) ? "" : reader.GetString(8),
             ZipCode = reader.IsDBNull(8) ? "" : reader.GetString(9),
             DateOfBirth = DateTime.Parse(reader.GetString(10)),
-            IsSynced = reader.GetBoolean(11),
-            ReportReady = reader.GetBoolean(12)
+            IsSynced = reader.GetBoolean(11)
         };
     }
 }

@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using PMSIntegration.Core.Interfaces;
 
 namespace PMSIntegration.Infrastructure.FileSystem;
 
@@ -6,7 +7,7 @@ namespace PMSIntegration.Infrastructure.FileSystem;
 /// Generic file system operations (not PMS-specific)
 /// </summary>
 /// 
-public class LocalFileSystemService
+public class LocalFileSystemService : ILocalFileSystemService
 {
     private readonly ILogger<LocalFileSystemService> _logger;
 

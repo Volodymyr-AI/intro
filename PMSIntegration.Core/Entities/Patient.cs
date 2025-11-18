@@ -20,7 +20,6 @@ public class Patient
     
     // Medical information
     public DateTime DateOfBirth { get; set; }
-    public bool ReportReady { get;  set; }
     
     public bool IsSynced { get; set; }
 
@@ -36,10 +35,7 @@ public class Patient
             Gender = gender,
             Phone = phone,
             Email = email,
-            DateOfBirth = dateOfBirth,
-            ReportReady = false
+            DateOfBirth = dateOfBirth
         };
     }
-    
-    public void MarkReportAsReady() => ReportReady = true;
 }
